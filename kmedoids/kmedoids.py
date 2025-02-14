@@ -2,28 +2,28 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import silhouette_score
 
 
 class KMedoidsClustering:
-    def __init__(self, k=5):
+    def __init__(self, k=5, p=2):
         self.k = k
+        self.p = p
         self.medoids = None
 
-    @staticmethod
-    def euclidean_distance(data_point, medoids):
-        """Calculate the Euclidean distance between a data point and medoids."""
-        return np.sqrt(np.sum((medoids - data_point) ** 2, axis=1))
+    def distance(self, data_point, medoids):
+        return np.linalg.norm(medoids - data_point, ord=self.p, axis=1)
 
     def fit(self, X, max_iter=200):
-        """Fit the KMedoids model to the dataset X."""
-        # randomly initialize medoids from the data points
+        """Fit the KMedoids model to the dataset X.
+           Randomly initialize medoids from the data points
+        """
         self.medoids = X[np.random.choice(len(X), self.k, replace=False)]
 
         for iteration in range(max_iter):
-            # assign each data point to the nearest medoid
             labels = []
             for data_point in X:
-                distances = self.euclidean_distance(data_point, self.medoids)
+                distances = self.distance(data_point, self.medoids)
                 cluster_num = np.argmin(distances)
                 labels.append(cluster_num)
             labels = np.array(labels)
@@ -32,72 +32,83 @@ class KMedoidsClustering:
             for i in range(self.k):
                 points = X[labels == i]
                 if len(points) == 0:
-                    # If a cluster has no points, keep the current medoid
                     new_medoids.append(self.medoids[i])
                 else:
-                    # Calculate the total distance between each point in the cluster and all others
-                    distances = np.sum([np.linalg.norm(points - point, axis=1) for point in points], axis=0)
-                    new_medoid_idx = np.argmin(distances)  # The point with the minimum total distance
+                    distances = np.sum([np.linalg.norm(points - point, ord=self.p, axis=1) for point in points], axis=0)
+                    new_medoid_idx = np.argmin(distances)
                     new_medoids.append(points[new_medoid_idx])
             new_medoids = np.array(new_medoids)
 
-            # Check for convergence
             if np.allclose(self.medoids, new_medoids, atol=1e-4):
                 print(f"Converged after {iteration + 1} iterations.")
                 break
+
             self.medoids = new_medoids
 
         return labels
 
 
-# Load and scale the data (assuming the dataset is in 'disney_movies.csv')
+# Load data
 file_path = 'disney_movies.csv'
 df = pd.read_csv(file_path)
 features = df[['Release Year', 'IMDb Rating']]
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(features)
 
-# Instantiate and fit K-Medoids
-k = 3  # Number of clusters
-kmedoids = KMedoidsClustering(k=k)
-labels = kmedoids.fit(X_scaled)
+k = 3
+kmedoids = KMedoidsClustering(k=k, p=2)
+kmedoids_labels = kmedoids.fit(X_scaled)
 
-# Assign labels to DataFrame
-df['Cluster'] = labels
 
-# Visualization with smaller medoids
+df['Cluster'] = kmedoids_labels
+
+
 plt.figure(figsize=(10, 6))
 
-# Scatter plot for the data points with the cluster labels
 scatter = plt.scatter(
-    X_scaled[:, 0],         # Release Year (standardized)
-    X_scaled[:, 1],         # IMDb Rating (standardized)
-    c=labels,               # Cluster assignment
-    cmap='viridis',         # Colormap
+    X_scaled[:, 0],
+    X_scaled[:, 1],
+    c=kmedoids_labels,
+    cmap='viridis',
     label='Movies',
-    alpha=0.8,              # Slight transparency to highlight overlaps
-    edgecolor='k',          # Add border for visibility
-    zorder=1                # Ensure data points are below the medoids
+    alpha=0.8,
+    edgecolor='k',
+    zorder=1
 )
 
-# Scatter plot for the medoids
 plt.scatter(
-    kmedoids.medoids[:, 0],  # Medoid X-coordinate (Release Year)
-    kmedoids.medoids[:, 1],  # Medoid Y-coordinate (IMDb Rating)
-    c='red',                 # Medoid color
-    marker='*',              # Star marker for medoids
-    s=150,                   # Smaller size for medoids (adjusted from 300)
-    edgecolor='white',       # White border around the medoids
+    kmedoids.medoids[:, 0],
+    kmedoids.medoids[:, 1],
+    c='red',
+    marker='*',
+    s=150,
+    edgecolor='white',
     label='Medoids',
-    zorder=2                 # Stars on top of data points
+    zorder=2
 )
 
-# Set title and labels
 plt.title('K-Medoids Clustering of Disney Movies')
 plt.xlabel('Release Year (standardized)')
 plt.ylabel('IMDb Rating (standardized)')
-
 plt.legend()
 plt.colorbar(scatter, ticks=range(k), label='Cluster')
-
 plt.show()
+
+for cluster_num in range(k):
+    cluster_movies = df[df['Cluster'] == cluster_num]
+    print(f"\nCluster {cluster_num + 1}:")
+    print(cluster_movies[['Movie Name', 'Release Year', 'IMDb Rating']])
+
+
+def evaluate_clustering(X, labels):
+    """Evaluate clustering using Inertia and Silhouette Score."""
+    # Inertia (Sum of squared distances to the closest medoid)
+    inertia = np.sum([np.linalg.norm(X[i] - X[labels == labels[i]].mean(axis=0)) ** 2 for i in range(len(X))])
+
+    # Silhouette score
+    silhouette = silhouette_score(X, labels)
+
+    return inertia, silhouette
+
+kmedoids_inertia, kmedoids_silhouette = evaluate_clustering(X_scaled, kmedoids_labels)
+print(f"K-Medoids Inertia: {kmedoids_inertia}, Silhouette: {kmedoids_silhouette}")
